@@ -478,18 +478,26 @@ static NSString * const AFNSURLSessionTaskDidSuspendNotification = @"com.alamofi
     return [self initWithSessionConfiguration:nil];
 }
 
+/*
+ 1.初始化一个session
+ 2.给manager的属性设置初始值
+ */
 - (instancetype)initWithSessionConfiguration:(NSURLSessionConfiguration *)configuration {
     self = [super init];
     if (!self) {
         return nil;
     }
-
+    
+    // 设置默认的configuration配置我们的session
     if (!configuration) {
         configuration = [NSURLSessionConfiguration defaultSessionConfiguration];
     }
-
+    
+    // 持有configuration
     self.sessionConfiguration = configuration;
-
+    
+    // 创建session 串行 : 多个task
+    // 设置为delegate的操作队列并发的线程数量1，也就是串行队列
     self.operationQueue = [[NSOperationQueue alloc] init];
     self.operationQueue.maxConcurrentOperationCount = 1;
 

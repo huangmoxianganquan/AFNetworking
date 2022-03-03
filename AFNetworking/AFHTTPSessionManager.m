@@ -63,15 +63,23 @@
     return [self initWithBaseURL:nil sessionConfiguration:configuration];
 }
 
+/*
+ 1.调用父类的方法
+ 2.给url添加“/”
+ 3.给requestSerializer、responseSerializer设置默认值
+ */
 - (instancetype)initWithBaseURL:(NSURL *)url
            sessionConfiguration:(NSURLSessionConfiguration *)configuration
 {
+    // 调用父类初始化方法
     self = [super initWithSessionConfiguration:configuration];
     if (!self) {
         return nil;
     }
 
     // Ensure terminal slash for baseURL path, so that NSURL +URLWithString:relativeToURL: works as expected
+    // 为了确保NSURL +URLWithString:relativeToURL: works可以正确执行，在baseurlpath的最后添加‘/’
+    // url有值且没有‘/’,那么在url的末尾添加‘/’
     if ([[url path] length] > 0 && ![[url absoluteString] hasSuffix:@"/"]) {
         url = [url URLByAppendingPathComponent:@""];
     }

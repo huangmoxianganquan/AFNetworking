@@ -101,6 +101,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 /**
  Creates and returns an `AFHTTPSessionManager` object.
+ 创建一个AFHTTPSessionManager对象，注意不是单例方法
  */
 + (instancetype)manager;
 
