@@ -89,6 +89,7 @@ typedef void (^AFURLSessionTaskCompletionHandler)(NSURLResponse *response, id re
 
 @interface AFURLSessionManagerTaskDelegate : NSObject <NSURLSessionTaskDelegate, NSURLSessionDataDelegate, NSURLSessionDownloadDelegate>
 - (instancetype)initWithTask:(NSURLSessionTask *)task;
+//weak防止循环引用（manager持有task，task和delegate是绑定的，相当于manager是持有delegate的）
 @property (nonatomic, weak) AFURLSessionManager *manager;
 @property (nonatomic, strong) NSMutableData *mutableData;
 @property (nonatomic, strong) NSProgress *uploadProgress;
@@ -357,27 +358,66 @@ static NSString * const AFNSURLSessionTaskDidSuspendNotification = @"com.alamofi
          iOS 7 and iOS 8 differ in NSURLSessionTask implementation, which makes the next bit of code a bit tricky.
          Many Unit Tests have been built to validate as much of this behavior has possible.
          Here is what we know:
+         iOS 7和iOS 8在NSURLSessionTask实现上有所不同，这使得下一段代码有点棘手。
+         许多单元测试都是为了尽可能地验证这种行为。
+         以下是我们所知道的：
             - NSURLSessionTasks are implemented with class clusters, meaning the class you request from the API isn't actually the type of class you will get back.
+         
+            NSURLSessionTasks是通过类簇实现的，这意味着您从API请求的类实际上不是您将返回的类的类型。
+         
             - Simply referencing `[NSURLSessionTask class]` will not work. You need to ask an `NSURLSession` to actually create an object, and grab the class from there.
+         
+            简单地引用“[NSURLSessionTask class]”将不起作用。您需要请求一个'NSURLSession'来实际创建一个对象，并从中获取类。
+         
             - On iOS 7, `localDataTask` is a `__NSCFLocalDataTask`, which inherits from `__NSCFLocalSessionTask`, which inherits from `__NSCFURLSessionTask`.
+         
+            在iOS7中，`localDataTask`是一个`__NSCFLocalDataTask`类对象，它继承自`__NSCFLocalSessionTask`类，这个类又继承自`__NSCFURLSessionTask`类
+         
             - On iOS 8, `localDataTask` is a `__NSCFLocalDataTask`, which inherits from `__NSCFLocalSessionTask`, which inherits from `NSURLSessionTask`.
+         
+            在iOS8中，`localDataTask`是一个`__NSCFLocalDataTask`类对象，它继承自`__NSCFLocalSessionTask`类，这个类继承自`NSURLSessionTask`类
+         
             - On iOS 7, `__NSCFLocalSessionTask` and `__NSCFURLSessionTask` are the only two classes that have their own implementations of `resume` and `suspend`, and `__NSCFLocalSessionTask` DOES NOT CALL SUPER. This means both classes need to be swizzled.
+            
+            在iOS7中，`__NSCFLocalSessionTask` 和 `__NSCFURLSessionTask`是两个拥有`resume`和`suspend`方法实现的两个类，并且`__NSCFLocalSessionTask`不调用`super`方法，这意味着这两个类都需要交换
+         
             - On iOS 8, `NSURLSessionTask` is the only class that implements `resume` and `suspend`. This means this is the only class that needs to be swizzled.
             - Because `NSURLSessionTask` is not involved in the class hierarchy for every version of iOS, its easier to add the swizzled methods to a dummy class and manage them there.
-        
-         Some Assumptions:
-            - No implementations of `resume` or `suspend` call super. If this were to change in a future version of iOS, we'd need to handle it.
-            - No background task classes override `resume` or `suspend`
          
+            在iOS8中，`NSURLSessionTask`是唯一实现了`resume`和`suspend`方法的类。这意味着只有这个类需要交换。
+            由于`NSURLSessionTask`不涉及每个iOS版本的类层次结构，因此也更容易将swizzle方法添加到一个虚拟的类中并管理它们
+         Some Assumptions:
+         一些假设：
+            - No implementations of `resume` or `suspend` call super. If this were to change in a future version of iOS, we'd need to handle it.
+            `resume`和`suspend`在它的方法实现中没有调用super，如果在未来的iOS版本中发生变化，我们需要处理它
+            - No background task classes override `resume` or `suspend`
+            没有后台任务类覆盖了`resume`和`suspend`这两个方法
+                    
+         当前的解决方案：
          The current solution:
             1) Grab an instance of `__NSCFLocalDataTask` by asking an instance of `NSURLSession` for a data task.
+            通过调用`NSURLSession`的方法获取一个`__NSCFLocalDataTask`实例
+         
             2) Grab a pointer to the original implementation of `af_resume`
+            获取一个`af_resume`原始实现的指针
+         
             3) Check to see if the current class has an implementation of resume. If so, continue to step 4.
+            检测当前类是否有`resume`的实现，如果有继续第4步
+         
             4) Grab the super class of the current class.
+            获取当前类的父类
+         
             5) Grab a pointer for the current class to the current implementation of `resume`.
+            获取当前类`resume`方法实现的函数指针
+         
             6) Grab a pointer for the super class to the current implementation of `resume`.
+            获取当前类父类`resume`方法实现的函数指针
+         
             7) If the current class implementation of `resume` is not equal to the super class implementation of `resume` AND the current implementation of `resume` is not equal to the original implementation of `af_resume`, THEN swizzle the methods
+            如果当前类的`resume`方法实现函数指针不等同于其父类该方法实现的函数指针以及不等同于该类`af_resume`原始实现的函数指针，则交换`resume`和`af_resume`俩方法实现函数指针
+         
             8) Set the current class to the super class, and repeat steps 3-8
+            将当前类赋值给它的父类，并且重复3~8步骤
          */
         NSURLSessionConfiguration *configuration = [NSURLSessionConfiguration ephemeralSessionConfiguration];
         NSURLSession *session = [NSURLSession sessionWithConfiguration:configuration];
@@ -404,6 +444,10 @@ static NSString * const AFNSURLSessionTaskDidSuspendNotification = @"com.alamofi
     }
 }
 
+/*
+ 先从虚拟类获取af_resume和af_suspend的函数指针，再添加给传进来的类，
+ 并将该类的af_resume和resume方法交换，以及af_suspend和suspend方法交换
+ */
 + (void)swizzleResumeAndSuspendMethodForClass:(Class)theClass {
     Method afResumeMethod = class_getInstanceMethod(self, @selector(af_resume));
     Method afSuspendMethod = class_getInstanceMethod(self, @selector(af_suspend));
@@ -500,20 +544,30 @@ static NSString * const AFNSURLSessionTaskDidSuspendNotification = @"com.alamofi
     // 设置为delegate的操作队列并发的线程数量1，也就是串行队列
     self.operationQueue = [[NSOperationQueue alloc] init];
     self.operationQueue.maxConcurrentOperationCount = 1;
-
+    // 默认为json解析
     self.responseSerializer = [AFJSONResponseSerializer serializer];
-
+    
+    // 设置默认证书 无条件信任证书https认证
     self.securityPolicy = [AFSecurityPolicy defaultPolicy];
 
 #if !TARGET_OS_WATCH
+    // 网络状态监听
     self.reachabilityManager = [AFNetworkReachabilityManager sharedManager];
 #endif
-
+    
+    // 为什么要收集: cancel resume supend : task : id
+    // delegate= value taskid = key
     self.mutableTaskDelegatesKeyedByTaskIdentifier = [[NSMutableDictionary alloc] init];
-
+    
+    // 使用NSLock确保线程安全
     self.lock = [[NSLock alloc] init];
     self.lock.name = AFURLSessionManagerLockName;
-
+    
+    // 异步的获取当前session的所有未完成的task。
+    // 其实讲道理来说在初始化中调用这个方法应该里面一个task都不会有
+    // 后台任务重新回来初始化session，可能就会有先前的任务
+    // https://github.com/AFNetworking/AFNetworking/issues/3499
+    //
     [self.session getTasksWithCompletionHandler:^(NSArray *dataTasks, NSArray *uploadTasks, NSArray *downloadTasks) {
         for (NSURLSessionDataTask *task in dataTasks) {
             [self addDelegateForDataTask:task uploadProgress:nil downloadProgress:nil completionHandler:nil];
@@ -592,22 +646,31 @@ static NSString * const AFNSURLSessionTaskDidSuspendNotification = @"com.alamofi
 - (void)setDelegate:(AFURLSessionManagerTaskDelegate *)delegate
             forTask:(NSURLSessionTask *)task
 {
+    //task和delegate都不能为空
     NSParameterAssert(task);
     NSParameterAssert(delegate);
-
+    
+    // 加锁确保中间代码块是原子操作，线程安全
+    // 因为存在多个task异步同时请求，需要绑定delegate，所以需要加锁
     [self.lock lock];
+    // 将delegate存入字典，以taskid作为key，说明每个task都有各自的代理
     self.mutableTaskDelegatesKeyedByTaskIdentifier[@(task.taskIdentifier)] = delegate;
     [self addNotificationObserverForTask:task];
     [self.lock unlock];
 }
 
+/*
+ 注意addDelegateForDataTask:这个函数并不是AFURLSessionManagerTaskDelegate的函数，而是AFURLSessionManager的一个函数。这也侧面说明了AFURLSessionManagerTaskDelegate和NSURLSessionTask的关系是由AFURLSessionManager管理的。
+ */
 - (void)addDelegateForDataTask:(NSURLSessionDataTask *)dataTask
                 uploadProgress:(nullable void (^)(NSProgress *uploadProgress)) uploadProgressBlock
               downloadProgress:(nullable void (^)(NSProgress *downloadProgress)) downloadProgressBlock
              completionHandler:(void (^)(NSURLResponse *response, id responseObject, NSError *error))completionHandler
 {
+    // 创建临时变量delegate并将其和dataTask绑定
     AFURLSessionManagerTaskDelegate *delegate = [[AFURLSessionManagerTaskDelegate alloc] initWithTask:dataTask];
     delegate.manager = self;
+    // 将外面的completionHandler赋值给delegate的completionHandler
     delegate.completionHandler = completionHandler;
 
     dataTask.taskDescription = self.taskDescriptionForSessionTasks;

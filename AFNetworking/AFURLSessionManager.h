@@ -32,10 +32,14 @@
 
 /**
  `AFURLSessionManager` creates and manages an `NSURLSession` object based on a specified `NSURLSessionConfiguration` object, which conforms to `<NSURLSessionTaskDelegate>`, `<NSURLSessionDataDelegate>`, `<NSURLSessionDownloadDelegate>`, and `<NSURLSessionDelegate>`.
-
+ 
+ AFURLSessionManager创建并且管理这一个基于`NSURLSessionConfiguration`创建的`NSURLSession`对象，并且遵循`<NSURLSessionTaskDelegate>`, `<NSURLSessionDataDelegate>`, `<NSURLSessionDownloadDelegate>`, and `<NSURLSessionDelegate>`
+ 所有的urlsession的代理必须继承或者实现
  ## Subclassing Notes
 
  This is the base class for `AFHTTPSessionManager`, which adds functionality specific to making HTTP requests. If you are looking to extend `AFURLSessionManager` specifically for HTTP, consider subclassing `AFHTTPSessionManager` instead.
+ 
+ 这是AFHTTPSessionManager的父类，为发送HTTP请求而增加了具体的功能。如果你打算扩展HTTP 来做HTTP相关的功能，可以直接使用AFHTTPSessionManager
 
  ## NSURLSession & NSURLSessionTask Delegate Methods
 
@@ -87,22 +91,26 @@
  */
 
 NS_ASSUME_NONNULL_BEGIN
-
+// 遵循了NSURLSession的各个协议 只要设置了一个代理，就会一起设置这四个代理。 而最终会根据task的类型来触发哪种代理
+// NSSecureCoding NSCoding的安全实现，防止因data数据不对导致闪退
 @interface AFURLSessionManager : NSObject <NSURLSessionDelegate, NSURLSessionTaskDelegate, NSURLSessionDataDelegate, NSURLSessionDownloadDelegate, NSSecureCoding, NSCopying>
 
 /**
  The managed session.
+ 作为一个实例变量，AFN发起的网络请求都是通过该session创建的task实现的
  */
 @property (readonly, nonatomic, strong) NSURLSession *session;
 
 /**
  The operation queue on which delegate callbacks are run.
+ 为session绑定的代理回调所使用的队列 默认最大并发数为1
  */
 @property (readonly, nonatomic, strong) NSOperationQueue *operationQueue;
 
 /**
  Responses sent from the server in data tasks created with `dataTaskWithRequest:success:failure:` and run using the `GET` / `POST` / et al. convenience methods are automatically validated and serialized by the response serializer. By default, this property is set to an instance of `AFJSONResponseSerializer`.
-
+ 
+ 通过`dataTaskWithRequest:success:failure:`方法从服务端得到的响应数据，通过 response serializer自动进行验证和序列化。默认使用AFJSONResponseSerializer
  @warning `responseSerializer` must not be `nil`.
  */
 @property (nonatomic, strong) id <AFURLResponseSerialization> responseSerializer;
@@ -113,6 +121,8 @@ NS_ASSUME_NONNULL_BEGIN
 
 /**
  The security policy used by created session to evaluate server trust for secure connections. `AFURLSessionManager` uses the `defaultPolicy` unless otherwise specified.
+ 
+ https证书校验对象 security policy被用来校验服务端安全信任连接 使用defaultPolicy初始化
  */
 @property (nonatomic, strong) AFSecurityPolicy *securityPolicy;
 
@@ -123,6 +133,8 @@ NS_ASSUME_NONNULL_BEGIN
 
 /**
  The network reachability manager. `AFURLSessionManager` uses the `sharedManager` by default.
+ 
+ 网络状态监听管理   默认使用它的sharedManager
  */
 @property (readwrite, nonatomic, strong) AFNetworkReachabilityManager *reachabilityManager;
 #endif
@@ -133,16 +145,19 @@ NS_ASSUME_NONNULL_BEGIN
 
 /**
  The data, upload, and download tasks currently run by the managed session.
+ 在session中的dataTask uploadTask downloadTask  指定数组内容的类型
  */
 @property (readonly, nonatomic, strong) NSArray <NSURLSessionTask *> *tasks;
 
 /**
  The data tasks currently run by the managed session.
+ 在session中的dataTask的集合
  */
 @property (readonly, nonatomic, strong) NSArray <NSURLSessionDataTask *> *dataTasks;
 
 /**
  The upload tasks currently run by the managed session.
+ 在session中的downloadTask的集合
  */
 @property (readonly, nonatomic, strong) NSArray <NSURLSessionUploadTask *> *uploadTasks;
 
@@ -157,11 +172,13 @@ NS_ASSUME_NONNULL_BEGIN
 
 /**
  The dispatch queue for `completionBlock`. If `NULL` (default), the main queue is used.
+ 统一在completionQueue中执行completionBlock  默认null，则会使用主队列
  */
 @property (nonatomic, strong, nullable) dispatch_queue_t completionQueue;
 
 /**
  The dispatch group for `completionBlock`. If `NULL` (default), a private dispatch group is used.
+ completionBlock的任务组  默认会使用私有的一个group
  */
 @property (nonatomic, strong, nullable) dispatch_group_t completionGroup;
 
