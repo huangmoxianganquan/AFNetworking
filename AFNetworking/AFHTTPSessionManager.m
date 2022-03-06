@@ -267,6 +267,11 @@
                                          failure:(nullable void (^)(NSURLSessionDataTask * _Nullable task, NSError *error))failure
 {
     NSError *serializationError = nil;
+    /*
+     1.先调用AFHTTPRequestSerializer的requestWithMethod函数构建request
+     2.处理request构建产生的错误 – serializationError
+     //relativeToURL表示将URLString拼接到baseURL后面
+     */
     NSMutableURLRequest *request = [self.requestSerializer requestWithMethod:method URLString:[[NSURL URLWithString:URLString relativeToURL:self.baseURL] absoluteString] parameters:parameters error:&serializationError];
     for (NSString *headerField in headers.keyEnumerator) {
         [request setValue:headers[headerField] forHTTPHeaderField:headerField];

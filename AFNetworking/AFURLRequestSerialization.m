@@ -358,16 +358,21 @@ forHTTPHeaderField:(NSString *)field
                                 parameters:(id)parameters
                                      error:(NSError *__autoreleasing *)error
 {
+    // method和URLString不能为空
     NSParameterAssert(method);
     NSParameterAssert(URLString);
 
     NSURL *url = [NSURL URLWithString:URLString];
-
+    
+    // url不能为空
     NSParameterAssert(url);
 
     NSMutableURLRequest *mutableRequest = [[NSMutableURLRequest alloc] initWithURL:url];
+    // 设置请求方式（get、post、put。。。）
     mutableRequest.HTTPMethod = method;
 
+    // 遍历设置过值的属性数组（mutableObservedChangedKeyPaths）
+    // ,给NSMutableURLRequest自带的属性赋值
     for (NSString *keyPath in self.mutableObservedChangedKeyPaths) {
         [mutableRequest setValue:[self valueForKeyPath:keyPath] forKey:keyPath];
     }
@@ -478,6 +483,7 @@ forHTTPHeaderField:(NSString *)field
 
     NSMutableURLRequest *mutableRequest = [request mutableCopy];
 
+    //遍历请求头数组，给mutableRequest.headfiled赋值
     [self.HTTPRequestHeaders enumerateKeysAndObjectsUsingBlock:^(id field, id value, BOOL * __unused stop) {
         if (![request valueForHTTPHeaderField:field]) {
             [mutableRequest setValue:value forHTTPHeaderField:field];
@@ -486,6 +492,7 @@ forHTTPHeaderField:(NSString *)field
 
     NSString *query = nil;
     if (parameters) {
+        // 自定义解析parameters，拼接url的方式
         if (self.queryStringSerialization) {
             NSError *serializationError;
             query = self.queryStringSerialization(request, parameters, &serializationError);
@@ -498,8 +505,11 @@ forHTTPHeaderField:(NSString *)field
                 return nil;
             }
         } else {
+            // 采用默认解析方式
             switch (self.queryStringSerializationStyle) {
                 case AFHTTPRequestQueryStringDefaultStyle:
+                    // 将parameters传入这个c函数，
+                    // c函数不用走对象调用方法寻找函数指针的过程，效率更高
                     query = AFQueryStringFromParameters(parameters);
                     break;
             }
