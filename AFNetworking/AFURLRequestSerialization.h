@@ -199,6 +199,8 @@ forHTTPHeaderField:(NSString *)field;
 
 /**
  HTTP methods for which serialized requests will encode parameters as a query string. `GET`, `HEAD`, and `DELETE` by default.
+ 需要将参数编码为query string的HTTP方法，默认为`GET`, `HEAD`, and `DELETE`
+ 这些HTTP方法会将其参数字符串进行百分号编码，然后拼接到url之后
  */
 @property (nonatomic, strong) NSSet <NSString *> *HTTPMethodsEncodingParametersInURI;
 

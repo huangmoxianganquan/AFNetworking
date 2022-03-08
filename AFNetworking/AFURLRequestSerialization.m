@@ -43,17 +43,34 @@ typedef NSString * (^AFQueryStringSerializationBlock)(NSURLRequest *request, id 
  should be percent-escaped in the query string.
     - parameter string: The string to be percent-escaped.
     - returns: The percent-escaped string.
+ 
+ 对于查询字符串键或值，返回遵循RFC 3986的百分比转义字符串。
+ RFC 3986指出以下字符是“保留”字符。
+ - 通用分隔符：“：”，“＃”，“[”，“]”，“@”，“？”，“/”
+ - 子分隔符：“！”，“$”，“＆”，“'”，“（”，“）”，“*”，“+”，“，”，“;”，“=”
+ 
+ RFC 3986第3.4节中规定和“/”字符不应转义以允许
+ 查询字符串以包含URL。因此，除“？”之外的所有“保留”字符和“/”
+ 应在查询字符串中转义百分比。
+ - 参数字符串：要被百分比转义的字符串。
+ - 返回：百分比转义的字符串
+ 不适合传输，字符会有歧义 q?d=abc&ie=urld
+ PercentEscapedString，翻译：百分比转义字符串
  */
 NSString * AFPercentEscapedStringFromString(NSString *string) {
+    // 需要做百分号编码处理的字符串 Delimiters：分隔符
     static NSString * const kAFCharactersGeneralDelimitersToEncode = @":#[]@"; // does not include "?" or "/" due to RFC 3986 - Section 3.4
     static NSString * const kAFCharactersSubDelimitersToEncode = @"!$&'()*+,;=";
-
+    
+    // 使用NSMutableCharacterSet进行过滤 得到允许的URLQuery字符集
     NSMutableCharacterSet * allowedCharacterSet = [[NSCharacterSet URLQueryAllowedCharacterSet] mutableCopy];
+    // 移除上面需要做百分号编码处理的字符串
     [allowedCharacterSet removeCharactersInString:[kAFCharactersGeneralDelimitersToEncode stringByAppendingString:kAFCharactersSubDelimitersToEncode]];
 
 	// FIXME: https://github.com/AFNetworking/AFNetworking/pull/3028
     // return [string stringByAddingPercentEncodingWithAllowedCharacters:allowedCharacterSet];
 
+    // 以50的长度为一个单位 循环处理
     static NSUInteger const batchSize = 50;
 
     NSUInteger index = 0;
@@ -64,12 +81,16 @@ NSString * AFPercentEscapedStringFromString(NSString *string) {
         NSRange range = NSMakeRange(index, length);
 
         // To avoid breaking up character sequences such as 👴🏻👮🏽
+        // 防止emoji字符串被截断
+        // 返回给定范围的组合字符序列字符串中的范围。
         range = [string rangeOfComposedCharacterSequencesForRange:range];
 
         NSString *substring = [string substringWithRange:range];
+        // 将不在allowedCharacterSet集合中的字符进行百分比转义
         NSString *encoded = [substring stringByAddingPercentEncodingWithAllowedCharacters:allowedCharacterSet];
+        // 拼接到escaped中
         [escaped appendString:encoded];
-
+        // 进行下一个50批次的循环
         index += range.length;
     }
 
@@ -119,9 +140,10 @@ FOUNDATION_EXPORT NSArray * AFQueryStringPairsFromKeyAndValue(NSString *key, id 
 NSString * AFQueryStringFromParameters(NSDictionary *parameters) {
     NSMutableArray *mutablePairs = [NSMutableArray array];
     for (AFQueryStringPair *pair in AFQueryStringPairsFromDictionary(parameters)) {
+        // 添加url编码后的字符串key=value,value为空则为key
         [mutablePairs addObject:[pair URLEncodedStringValue]];
     }
-
+    // 数组里的字符串通过"&"拼接后返回
     return [mutablePairs componentsJoinedByString:@"&"];
 }
 
@@ -387,7 +409,7 @@ forHTTPHeaderField:(NSString *)field
     NSParameterAssert(url);
 
     NSMutableURLRequest *mutableRequest = [[NSMutableURLRequest alloc] initWithURL:url];
-    // 设置请求方式（get、post、put。。。）
+    // 设置请求方法（get、post、put。。。）
     mutableRequest.HTTPMethod = method;
     
     /*
@@ -397,7 +419,11 @@ forHTTPHeaderField:(NSString *)field
     for (NSString *keyPath in self.mutableObservedChangedKeyPaths) {
         [mutableRequest setValue:[self valueForKeyPath:keyPath] forKey:keyPath];
     }
-
+    
+    /*
+     1、将self.HTTPRequestHeaders里面的请求头字段添加到request中
+     2、参数序列化，生成query，get方法拼接到url后面（示例：coount=5&start=1），post请求query编码后设置为请求体
+     */
     mutableRequest = [[self requestBySerializingRequest:mutableRequest withParameters:parameters error:error] mutableCopy];
 
 	return mutableRequest;
@@ -504,8 +530,11 @@ forHTTPHeaderField:(NSString *)field
 
     NSMutableURLRequest *mutableRequest = [request mutableCopy];
     
-    // 请求头赋值
-    // 遍历请求头数组，给mutableRequest.headfiled赋值
+    /* 设置请求头
+     遍历请求头数组，给mutableRequest.headfiled赋值
+     通过- (void)setValue:(NSString *)value
+forHTTPHeaderField:(NSString *)field方法设置的请求头属性
+    */
     [self.HTTPRequestHeaders enumerateKeysAndObjectsUsingBlock:^(id field, id value, BOOL * __unused stop) {
         if (![request valueForHTTPHeaderField:field]) {
             [mutableRequest setValue:value forHTTPHeaderField:field];
@@ -527,7 +556,7 @@ forHTTPHeaderField:(NSString *)field
                 return nil;
             }
         } else {
-            // 采用默认解析方式
+            // 采用默认解析方式 key1=value1&key2=value2
             switch (self.queryStringSerializationStyle) {
                 case AFHTTPRequestQueryStringDefaultStyle:
                     // 将parameters传入这个c函数，
@@ -537,19 +566,31 @@ forHTTPHeaderField:(NSString *)field
             }
         }
     }
+    
+    // 类似这类样式：count=5&start=1
+    NSLog(@"query:%@",query);
 
     if ([self.HTTPMethodsEncodingParametersInURI containsObject:[[request HTTPMethod] uppercaseString]]) {
         if (query && query.length > 0) {
+            // 判定请求是否有query，有则使用@"&%@"拼接，没有则使用@"?%@"拼接
             mutableRequest.URL = [NSURL URLWithString:[[mutableRequest.URL absoluteString] stringByAppendingFormat:mutableRequest.URL.query ? @"&%@" : @"?%@", query]];
         }
     } else {
-        // #2864: an empty string is a valid x-www-form-urlencoded payload
+        /*
+         #2864: an empty string is a valid x-www-form-urlencoded paylo      ad
+         空字符串是有效的x-www-form-urlencoded有效负载
+        */
         if (!query) {
             query = @"";
         }
-        if (![mutableRequest valueForHTTPHeaderField:@"Content-Type"]) {
+        /*
+         函数会判断request的Content-Type是否设置了，如果没有，就默认设置为application/x-www-form-urlencoded
+         application/x-www-form-urlencoded是常用的表单发包方式，普通的表单提交，或者js发包，默认都是通过这种方式
+         */
+        if (![mutableRequest valueForHTTPHeade   rField:@"Content-Type"]) {
             [mutableRequest setValue:@"application/x-www-form-urlencoded" forHTTPHeaderField:@"Content-Type"];
         }
+        // 将query编码后设置为请求体
         [mutableRequest setHTTPBody:[query dataUsingEncoding:self.stringEncoding]];
     }
 
