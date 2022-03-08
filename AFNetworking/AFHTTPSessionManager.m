@@ -273,9 +273,12 @@
      //relativeToURL表示将URLString拼接到baseURL后面
      */
     NSMutableURLRequest *request = [self.requestSerializer requestWithMethod:method URLString:[[NSURL URLWithString:URLString relativeToURL:self.baseURL] absoluteString] parameters:parameters error:&serializationError];
+    
+    // 遍历传进来的请求数组，设置请求的请求头属性
     for (NSString *headerField in headers.keyEnumerator) {
         [request setValue:headers[headerField] forHTTPHeaderField:headerField];
     }
+    
     if (serializationError) {
         if (failure) {
             dispatch_async(self.completionQueue ?: dispatch_get_main_queue(), ^{

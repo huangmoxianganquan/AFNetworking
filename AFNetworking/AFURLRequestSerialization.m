@@ -77,7 +77,7 @@ NSString * AFPercentEscapedStringFromString(NSString *string) {
 }
 
 #pragma mark -
-
+// 查询字符串key/value结对对象
 @interface AFQueryStringPair : NSObject
 @property (readwrite, nonatomic, strong) id field;
 @property (readwrite, nonatomic, strong) id value;
@@ -129,31 +129,50 @@ NSArray * AFQueryStringPairsFromDictionary(NSDictionary *dictionary) {
     return AFQueryStringPairsFromKeyAndValue(nil, dictionary);
 }
 
+//使用了递归
+/*
+ 接着会对value的类型进行判断，有NSDictionary、NSArray、NSSet类型。不过有人就会问了，在AFQueryStringPairsFromDictionary中给AFQueryStringPairsFromKeyAndValue函数传入的value不是NSDictionary嘛？还要判断那么多类型干啥？对，问得很好，这就是AFQueryStringPairsFromKeyAndValue的核心----递归调用并解析，你不能保证NSDictionary的value中存放的是一个NSArray、NSSet。
+ */
 NSArray * AFQueryStringPairsFromKeyAndValue(NSString *key, id value) {
     NSMutableArray *mutableQueryStringComponents = [NSMutableArray array];
 
+    /*
+     根据需要排列的对象的description来进行升序排列，并且selector使用的是compare:
+     因为对象的description返回的是NSString，所以此处compare:使用的是NSString的compare函数
+     */
     NSSortDescriptor *sortDescriptor = [NSSortDescriptor sortDescriptorWithKey:@"description" ascending:YES selector:@selector(compare:)];
-
+    
+    // 判断value是什么类型的，然后去递归调用自己，直到解析的是除了array dic set以外的元素，然后把得到的参数数组返回。
     if ([value isKindOfClass:[NSDictionary class]]) {
         NSDictionary *dictionary = value;
         // Sort dictionary keys to ensure consistent ordering in query string, which is important when deserializing potentially ambiguous sequences, such as an array of dictionaries
+        /*
+         对字典键进行排序以确保查询字符串中的顺序一致，这在反序列化可能存在歧义的
+         序列（例如字典数组）时非常重要
+        */
+        // 对字典key进行升序排列，然后进行遍历
         for (id nestedKey in [dictionary.allKeys sortedArrayUsingDescriptors:@[ sortDescriptor ]]) {
             id nestedValue = dictionary[nestedKey];
             if (nestedValue) {
+                // 如果传进来的key存在，则下一层的key为key[nestedKey]，如果不存在则直接是nestedKey
                 [mutableQueryStringComponents addObjectsFromArray:AFQueryStringPairsFromKeyAndValue((key ? [NSString stringWithFormat:@"%@[%@]", key, nestedKey] : nestedKey), nestedValue)];
             }
         }
     } else if ([value isKindOfClass:[NSArray class]]) {
         NSArray *array = value;
         for (id nestedValue in array) {
+            // 下一层的key为key[]，容易造成歧义，可以用注释的方法改进，加上序号
             [mutableQueryStringComponents addObjectsFromArray:AFQueryStringPairsFromKeyAndValue([NSString stringWithFormat:@"%@[]", key], nestedValue)];
+//            [mutableQueryStringComponents addObjectsFromArray:AFQueryStringPairsFromKeyAndValue([NSString stringWithFormat:@"%@[%lu]", key,(unsigned long)[array indexOfObject:nestedValue]], nestedValue)];
         }
     } else if ([value isKindOfClass:[NSSet class]]) {
         NSSet *set = value;
+        // value为set的下一层的key，还是key
         for (id obj in [set sortedArrayUsingDescriptors:@[ sortDescriptor ]]) {
             [mutableQueryStringComponents addObjectsFromArray:AFQueryStringPairsFromKeyAndValue(key, obj)];
         }
     } else {
+        // 最终形成key和value对应的AFQueryStringPair添加到数组返回
         [mutableQueryStringComponents addObject:[[AFQueryStringPair alloc] initWithField:key value:value]];
     }
 
@@ -370,9 +389,11 @@ forHTTPHeaderField:(NSString *)field
     NSMutableURLRequest *mutableRequest = [[NSMutableURLRequest alloc] initWithURL:url];
     // 设置请求方式（get、post、put。。。）
     mutableRequest.HTTPMethod = method;
-
-    // 遍历设置过值的属性数组（mutableObservedChangedKeyPaths）
-    // ,给NSMutableURLRequest自带的属性赋值
+    
+    /*
+     遍历设置过值的属性数组（mutableObservedChangedKeyPaths）
+     ,给NSMutableURLRequest自带的属性赋值
+    */
     for (NSString *keyPath in self.mutableObservedChangedKeyPaths) {
         [mutableRequest setValue:[self valueForKeyPath:keyPath] forKey:keyPath];
     }
@@ -482,8 +503,9 @@ forHTTPHeaderField:(NSString *)field
     NSParameterAssert(request);
 
     NSMutableURLRequest *mutableRequest = [request mutableCopy];
-
-    //遍历请求头数组，给mutableRequest.headfiled赋值
+    
+    // 请求头赋值
+    // 遍历请求头数组，给mutableRequest.headfiled赋值
     [self.HTTPRequestHeaders enumerateKeysAndObjectsUsingBlock:^(id field, id value, BOOL * __unused stop) {
         if (![request valueForHTTPHeaderField:field]) {
             [mutableRequest setValue:value forHTTPHeaderField:field];
@@ -1243,7 +1265,7 @@ typedef enum {
     return serializer;
 }
 
-#pragma mark - AFURLRequestSerialization
+#pragma mark - JSON 重载父类方法 AFURLRequestSerialization
 
 - (NSURLRequest *)requestBySerializingRequest:(NSURLRequest *)request
                                withParameters:(id)parameters
@@ -1336,7 +1358,7 @@ typedef enum {
     return serializer;
 }
 
-#pragma mark - AFURLRequestSerializer
+#pragma mark - PropertyList 重载父类方法 AFURLRequestSerializer
 
 - (NSURLRequest *)requestBySerializingRequest:(NSURLRequest *)request
                                withParameters:(id)parameters
