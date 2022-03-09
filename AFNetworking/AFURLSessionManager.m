@@ -116,6 +116,7 @@ typedef void (^AFURLSessionTaskCompletionHandler)(NSURLResponse *response, id re
     _uploadProgress = [[NSProgress alloc] initWithParent:nil userInfo:nil];
     _downloadProgress = [[NSProgress alloc] initWithParent:nil userInfo:nil];
     
+    // 设置uploadProgress、_downloadProgress监听
     __weak __typeof__(task) weakTask = task;
     for (NSProgress *progress in @[ _uploadProgress, _downloadProgress ])
     {
@@ -139,6 +140,7 @@ typedef void (^AFURLSessionTaskCompletionHandler)(NSURLResponse *response, id re
             };
         }
         
+        // 监听进度变化
         [progress addObserver:self
                    forKeyPath:NSStringFromSelector(@selector(fractionCompleted))
                       options:NSKeyValueObservingOptionNew
@@ -595,6 +597,10 @@ static NSString * const AFNSURLSessionTaskDidSuspendNotification = @"com.alamofi
     
     @synchronized (self) {
         if (!_session) {
+            /*
+             设置了session的代理，没有设置task代理的话，
+             task的代理方法回调后会转发给session的代理（参考task代理的api声明）
+             */
             _session = [NSURLSession sessionWithConfiguration:self.sessionConfiguration delegate:self delegateQueue:self.operationQueue];
         }
     }
@@ -672,10 +678,17 @@ static NSString * const AFNSURLSessionTaskDidSuspendNotification = @"com.alamofi
     delegate.manager = self;
     // 将外面的completionHandler赋值给delegate的completionHandler
     delegate.completionHandler = completionHandler;
-
+    
+    /*
+     taskidentifier=key delegate=value,确保task唯一
+     taskDescription自行设置的，区分是否是当前的session创建的
+     */
     dataTask.taskDescription = self.taskDescriptionForSessionTasks;
+    //函数字面意思是将一个session task和一个AFURLSessionManagerTaskDelegate类型的delegate变量绑在一起，而这个绑在一起的工作是由我们的AFURLSessionManager所做。至于绑定的过程，就是以该session task的taskIdentifier为key，delegate为value，赋值给mutableTaskDelegatesKeyedByTaskIdentifier这个NSMutableDictionary类型的变量。
     [self setDelegate:delegate forTask:dataTask];
-
+    
+    // 设置回调块
+    // task deleaget
     delegate.uploadProgressBlock = uploadProgressBlock;
     delegate.downloadProgressBlock = downloadProgressBlock;
 }
@@ -987,16 +1000,37 @@ static NSString * const AFNSURLSessionTaskDidSuspendNotification = @"com.alamofi
 
 #pragma mark - NSURLSessionDelegate
 
+/*
+ 当前session失效，会调用
+ 如果你使用finishTasksAndInvalidate函数使该session失效，
+ 那么session首先会先完成最后一个task，然后再调用URLSession:didBecomeInvalidWithError:代理方法，
+ 如果你调用invalidateAndCancel方法来使session失效，那么该session会立即调用这个代理方法。
+
+ 
+ */
 - (void)URLSession:(NSURLSession *)session
 didBecomeInvalidWithError:(NSError *)error
 {
     if (self.sessionDidBecomeInvalid) {
         self.sessionDidBecomeInvalid(session, error);
     }
-
+    // 不过源代码中没有举例如何使用这个Notification，所以需要用户自己定义，比如结束进度条的显示啊
     [[NSNotificationCenter defaultCenter] postNotificationName:AFURLSessionDidInvalidateNotification object:session];
 }
 
+//HTTPS认证
+/*
+ 
+ 该代理方法会在下面两种情况调用：
+ 当服务器端要求客户端提供证书时或者进行NTLM认证（Windows NT LAN Manager，微软提出的WindowsNT挑战/响应验证机制）时，此方法允许你的app提供正确的挑战证书。
+ 当某个session使用SSL/TLS协议，第一次和服务器端建立连接的时候，服务器会发送给iOS客户端一个证书，此方法允许你的app验证服务期端的证书链（certificate keychain）
+ 注：如果你没有实现该方法，该session会调用其NSURLSessionTaskDelegate的代理方法URLSession:task:didReceiveChallenge:completionHandler: 。
+ 这里，我把官方文档对这个方法的描述翻译了一下。
+ 总结一下，这个方法其实就是做https认证的。看看上面的注释，大概能看明白这个方法做认证的步骤，我们还是如果有自定义的做认证的Block，则调用我们自定义的，否则去执行默认的认证步骤，最后调用完成认证
+ 
+服务端发起的一个验证挑战,客户端需要根据挑战的类型提供相应的挑战凭证。当然,挑战凭证不一定都是进行HTTPS证书的信任,也可能是需要客户端提供用户密码或者提供双向验证时的客户端证书。当这个挑战凭证被验证通过时,请求便可以继续顺利进行
+ */
+//收到服务端的challenge，例如https需要验证证书等 ats开启
 - (void)URLSession:(NSURLSession *)session
 didReceiveChallenge:(NSURLAuthenticationChallenge *)challenge
  completionHandler:(void (^)(NSURLSessionAuthChallengeDisposition disposition, NSURLCredential *credential))completionHandler

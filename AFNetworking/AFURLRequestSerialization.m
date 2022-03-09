@@ -409,10 +409,11 @@ forHTTPHeaderField:(NSString *)field
     NSParameterAssert(url);
 
     NSMutableURLRequest *mutableRequest = [[NSMutableURLRequest alloc] initWithURL:url];
-    // 设置请求方法（get、post、put。。。）
+    // 设置请求方法:（get、post、put。。。）
     mutableRequest.HTTPMethod = method;
     
     /*
+     设置属性：
      遍历设置过值的属性数组（mutableObservedChangedKeyPaths）
      ,给NSMutableURLRequest自带的属性赋值
     */
@@ -421,7 +422,10 @@ forHTTPHeaderField:(NSString *)field
     }
     
     /*
+     设置请求头和生成query：
      1、将self.HTTPRequestHeaders里面的请求头字段添加到request中
+       （通过- (void)setValue:(NSString *)value
+        forHTTPHeaderField:(NSString *)field方法设置的请求头属性）
      2、参数序列化，生成query，get方法拼接到url后面（示例：coount=5&start=1），post请求query编码后设置为请求体
      */
     mutableRequest = [[self requestBySerializingRequest:mutableRequest withParameters:parameters error:error] mutableCopy];
@@ -530,7 +534,7 @@ forHTTPHeaderField:(NSString *)field
 
     NSMutableURLRequest *mutableRequest = [request mutableCopy];
     
-    /* 设置请求头
+    /* 设置请求头：
      遍历请求头数组，给mutableRequest.headfiled赋值
      通过- (void)setValue:(NSString *)value
 forHTTPHeaderField:(NSString *)field方法设置的请求头属性
@@ -587,7 +591,7 @@ forHTTPHeaderField:(NSString *)field方法设置的请求头属性
          函数会判断request的Content-Type是否设置了，如果没有，就默认设置为application/x-www-form-urlencoded
          application/x-www-form-urlencoded是常用的表单发包方式，普通的表单提交，或者js发包，默认都是通过这种方式
          */
-        if (![mutableRequest valueForHTTPHeade   rField:@"Content-Type"]) {
+        if (![mutableRequest valueForHTTPHeaderField:@"Content-Type"]) {
             [mutableRequest setValue:@"application/x-www-form-urlencoded" forHTTPHeaderField:@"Content-Type"];
         }
         // 将query编码后设置为请求体

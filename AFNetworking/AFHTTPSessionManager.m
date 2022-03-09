@@ -269,16 +269,20 @@
     NSError *serializationError = nil;
     /*
      1.先调用AFHTTPRequestSerializer的requestWithMethod函数构建request
-     2.处理request构建产生的错误 – serializationError
+     2.处理request构建产生的错误 – serializationError（自定义生成query的错误）
      //relativeToURL表示将URLString拼接到baseURL后面
      */
     NSMutableURLRequest *request = [self.requestSerializer requestWithMethod:method URLString:[[NSURL URLWithString:URLString relativeToURL:self.baseURL] absoluteString] parameters:parameters error:&serializationError];
     
-    // 遍历传进来的请求数组，设置请求的请求头属性
+    /*
+     设置请求头：
+     遍历传进来的请求数组，设置请求的请求头属性
+    */
     for (NSString *headerField in headers.keyEnumerator) {
         [request setValue:headers[headerField] forHTTPHeaderField:headerField];
     }
     
+    // 有序列化错误则通过failure回调错误
     if (serializationError) {
         if (failure) {
             dispatch_async(self.completionQueue ?: dispatch_get_main_queue(), ^{
@@ -288,7 +292,8 @@
 
         return nil;
     }
-
+    
+    // 此时的request已经将参数拼接在url后面
     __block NSURLSessionDataTask *dataTask = nil;
     dataTask = [self dataTaskWithRequest:request
                           uploadProgress:uploadProgress
