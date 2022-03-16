@@ -157,6 +157,7 @@ typedef void (^AFURLSessionTaskCompletionHandler)(NSURLResponse *response, id re
 #pragma mark - NSProgress Tracking
 
 - (void)observeValueForKeyPath:(NSString *)keyPath ofObject:(id)object change:(NSDictionary<NSString *,id> *)change context:(void *)context {
+    // 监听回调，在初始化的时候已经对downloadProgress和uploadProgress做了监听
    if ([object isEqual:self.downloadProgress]) {
         if (self.downloadProgressBlock) {
             self.downloadProgressBlock(object);
@@ -177,36 +178,49 @@ static const void * const AuthenticationChallengeErrorKey = &AuthenticationChall
               task:(NSURLSessionTask *)task
 didCompleteWithError:(NSError *)error
 {
+    // 检测https服务端验证是否报错，报错则将error变更为服务端验证报错的error
     error = objc_getAssociatedObject(task, AuthenticationChallengeErrorKey) ?: error;
+    // manager持有task，task和delegate是绑定的，delegate又持有manager
     __strong AFURLSessionManager *manager = self.manager;
 
     __block id responseObject = nil;
 
     NSMutableDictionary *userInfo = [NSMutableDictionary dictionary];
+    // 存储responseSerializer响应解析对象
     userInfo[AFNetworkingTaskDidCompleteResponseSerializerKey] = manager.responseSerializer;
 
-    //Performance Improvement from #2672
+    // Performance Improvement from #2672
+    // 具体可以查看#issue 2672。这里主要是针对大文件的时候，性能提升会很明显
     NSData *data = nil;
     if (self.mutableData) {
         data = [self.mutableData copy];
-        //We no longer need the reference, so nil it out to gain back some memory.
+        // We no longer need the reference, so nil it out to gain back some memory.
+        // 我们不再需要引用，所以将其置零以获得一些内存。
         self.mutableData = nil;
     }
 
 #if AF_CAN_USE_AT_AVAILABLE && AF_CAN_INCLUDE_SESSION_TASK_METRICS
     if (@available(iOS 10, macOS 10.12, watchOS 3, tvOS 10, *)) {
+        // 会话任务指标
         if (self.sessionTaskMetrics) {
             userInfo[AFNetworkingTaskDidCompleteSessionTaskMetrics] = self.sessionTaskMetrics;
         }
     }
 #endif
-
+    
+    // 继续给userinfo填数据
+    // 如果downloadFileURL存在，即如果是下载任务就设置下载完成后的文件存储url到字典中
     if (self.downloadFileURL) {
         userInfo[AFNetworkingTaskDidCompleteAssetPathKey] = self.downloadFileURL;
     } else if (data) {
+        // 否则就设置对应的NSData数据到字典中
         userInfo[AFNetworkingTaskDidCompleteResponseDataKey] = data;
     }
 
+    /*
+     如果task出错了，处理error信息
+     所以对应的观察者在处理error的时候，比如可以先判断userInfo[AFNetworkingTaskDidCompleteErrorKey]是否有值，有值的话，就说明是要处理error
+     */
     if (error) {
         userInfo[AFNetworkingTaskDidCompleteErrorKey] = error;
 
