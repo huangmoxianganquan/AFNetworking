@@ -152,7 +152,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 /**
  Creates and runs an `NSURLSessionDataTask` with a `HEAD` request.
- 
+ 发起一个HEAD请求（HEAD请求类似于GET请求，只不过返回的响应没有具体的内容，用于获取报头）
  @param URLString The URL string used to create the request URL.
  @param parameters The parameters to be encoded according to the client request serializer.
  @param headers The headers appended to the default headers for this request.
@@ -169,7 +169,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 /**
  Creates and runs an `NSURLSessionDataTask` with a `POST` request.
- 
+ 发起一个POST请求
  @param URLString The URL string used to create the request URL.
  @param parameters The parameters to be encoded according to the client request serializer.
  @param headers The headers appended to the default headers for this request.
@@ -188,7 +188,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 /**
  Creates and runs an `NSURLSessionDataTask` with a multipart `POST` request.
- 
+ 发起一个带文件上传的POST请求
  @param URLString The URL string used to create the request URL.
  @param parameters The parameters to be encoded according to the client request serializer.
  @param headers The headers appended to the default headers for this request.
