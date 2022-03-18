@@ -442,8 +442,17 @@ forHTTPHeaderField:(NSString *)field
     NSParameterAssert(method);
     NSParameterAssert(![method isEqualToString:@"GET"] && ![method isEqualToString:@"HEAD"]);
 
+    /*
+     生成request
+     1、设置请求方法
+     2、设置request属性
+     3、设置请求头（通过requestSerialer的setValue:forHttpField方法设置的请求头赋值给request）
+     4、生成query
+     */
     NSMutableURLRequest *mutableRequest = [self requestWithMethod:method URLString:URLString parameters:nil error:error];
 
+    // 使用initWithURLRequest:stringEncoding:来初始化一个AFStreamingMultipartFormData变量
+    // 主要是为了构建bodyStream
     __block AFStreamingMultipartFormData *formData = [[AFStreamingMultipartFormData alloc] initWithURLRequest:mutableRequest stringEncoding:NSUTF8StringEncoding];
 
     if (parameters) {
@@ -454,6 +463,7 @@ forHTTPHeaderField:(NSString *)field
             } else if ([pair.value isEqual:[NSNull null]]) {
                 data = [NSData data];
             } else {
+                //通常nslog打印会调用description，打印出来的是地址，但是可以重写description，来实现打印出我们想要的类型
                 data = [[pair.value description] dataUsingEncoding:self.stringEncoding];
             }
 
@@ -975,7 +985,7 @@ NSTimeInterval const kAFUploadStream3GSuggestedDelay = 0.2;
     if ([self streamStatus] == NSStreamStatusClosed) {
         return 0;
     }
-
+    
     NSInteger totalNumberOfBytesRead = 0;
 
     while ((NSUInteger)totalNumberOfBytesRead < MIN(length, self.numberOfBytesInPacket)) {
