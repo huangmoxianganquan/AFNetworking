@@ -147,6 +147,8 @@ NSString * AFQueryStringFromParameters(NSDictionary *parameters) {
     return [mutablePairs componentsJoinedByString:@"&"];
 }
 
+/// 将字典转换成key、value形式的AFQueryStringPair的数组
+/// @param dictionary 字典
 NSArray * AFQueryStringPairsFromDictionary(NSDictionary *dictionary) {
     return AFQueryStringPairsFromKeyAndValue(nil, dictionary);
 }
@@ -759,6 +761,7 @@ NSTimeInterval const kAFUploadStream3GSuggestedDelay = 0.2;
 
     self.request = urlRequest;
     self.stringEncoding = encoding;
+    // 设置boundary（可以自己定义）,内容分界线：Boundary+两个随机数
     self.boundary = AFCreateMultipartFormBoundary();
     self.bodyStream = [[AFMultipartBodyStream alloc] initWithStringEncoding:encoding];
 
@@ -886,14 +889,15 @@ NSTimeInterval const kAFUploadStream3GSuggestedDelay = 0.2;
                          body:(NSData *)body
 {
     NSParameterAssert(body);
-
+    // 设置内容分段的配置 编码、头、分界线、内容长度、内容
     AFHTTPBodyPart *bodyPart = [[AFHTTPBodyPart alloc] init];
     bodyPart.stringEncoding = self.stringEncoding;
     bodyPart.headers = headers;
     bodyPart.boundary = self.boundary;
     bodyPart.bodyContentLength = [body length];
     bodyPart.body = body;
-
+    
+    // 将内容分段添加到数据流中
     [self.bodyStream appendHTTPBodyPart:bodyPart];
 }
 
@@ -912,8 +916,10 @@ NSTimeInterval const kAFUploadStream3GSuggestedDelay = 0.2;
     // Reset the initial and final boundaries to ensure correct Content-Length
     [self.bodyStream setInitialAndFinalBoundaries];
     [self.request setHTTPBodyStream:self.bodyStream];
-
+    
+    // 设置Content-Type
     [self.request setValue:[NSString stringWithFormat:@"multipart/form-data; boundary=%@", self.boundary] forHTTPHeaderField:@"Content-Type"];
+    // 设置Content-Length
     [self.request setValue:[NSString stringWithFormat:@"%llu", [self.bodyStream contentLength]] forHTTPHeaderField:@"Content-Length"];
 
     return self.request;
@@ -978,7 +984,11 @@ NSTimeInterval const kAFUploadStream3GSuggestedDelay = 0.2;
 }
 
 #pragma mark - NSInputStream
-
+/*
+ 重写NSInputStream方法
+ AFMultipartBodyStream通过body读取数据的核心方法
+ 该方法返回是否还有数据可读
+ */
 - (NSInteger)read:(uint8_t *)buffer
         maxLength:(NSUInteger)length
 {
@@ -987,21 +997,29 @@ NSTimeInterval const kAFUploadStream3GSuggestedDelay = 0.2;
     }
     
     NSInteger totalNumberOfBytesRead = 0;
-
+    
+    /*
+     length在mac 64位上未32768
+     每次读取32768大小
+     */
     while ((NSUInteger)totalNumberOfBytesRead < MIN(length, self.numberOfBytesInPacket)) {
+        // 如果当前读取的body不存在或者body没有可读字节，则从HTTPBodyPartArray读取下一个对象
         if (!self.currentHTTPBodyPart || ![self.currentHTTPBodyPart hasBytesAvailable]) {
             if (!(self.currentHTTPBodyPart = [self.HTTPBodyPartEnumerator nextObject])) {
                 break;
             }
         } else {
+            // 读取当前HTTPBodyPart的数据长度
             NSUInteger maxLength = MIN(length, self.numberOfBytesInPacket) - (NSUInteger)totalNumberOfBytesRead;
+            // 从当前的HTTPBodyPart中读取数据，存到buffer数据缓冲区中
             NSInteger numberOfBytesRead = [self.currentHTTPBodyPart read:&buffer[totalNumberOfBytesRead] maxLength:maxLength];
             if (numberOfBytesRead == -1) {
                 self.streamError = self.currentHTTPBodyPart.inputStream.streamError;
                 break;
             } else {
+                // 当前总大小
                 totalNumberOfBytesRead += numberOfBytesRead;
-
+                // 延迟
                 if (self.delay > 0.0f) {
                     [NSThread sleepForTimeInterval:self.delay];
                 }
@@ -1101,10 +1119,10 @@ NSTimeInterval const kAFUploadStream3GSuggestedDelay = 0.2;
 #pragma mark -
 
 typedef enum {
-    AFEncapsulationBoundaryPhase = 1,
-    AFHeaderPhase                = 2,
-    AFBodyPhase                  = 3,
-    AFFinalBoundaryPhase         = 4,
+    AFEncapsulationBoundaryPhase = 1, // 封装（起始）边界线段
+    AFHeaderPhase                = 2, // 头段
+    AFBodyPhase                  = 3, // 内容段
+    AFFinalBoundaryPhase         = 4, // 终止边界线段
 } AFHTTPBodyPartReadPhase;
 
 @interface AFHTTPBodyPart () <NSCopying> {
@@ -1270,11 +1288,13 @@ typedef enum {
             _phase = AFHeaderPhase;
             break;
         case AFHeaderPhase:
+            // 打开流，准备接受数据
             [self.inputStream scheduleInRunLoop:[NSRunLoop currentRunLoop] forMode:NSRunLoopCommonModes];
             [self.inputStream open];
             _phase = AFBodyPhase;
             break;
         case AFBodyPhase:
+            // 关闭流
             [self.inputStream close];
             _phase = AFFinalBoundaryPhase;
             break;
