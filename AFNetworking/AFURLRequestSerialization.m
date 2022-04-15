@@ -470,15 +470,23 @@ forHTTPHeaderField:(NSString *)field
             }
 
             if (data) {
+                /*
+                 bodyStream构造最主要的部分就在这了（虽然后面requestByFinalizingMultipartFormData函数还会稍微处理一下）
+                 根据data和name构建Request的header和body，后面详解
+                 */
                 [formData appendPartWithFormData:data name:[pair.field description]];
             }
         }
     }
-
+    
+    // 参考上面的例子，其实还是往formData中添加数据，主要是提供接口给调用者添加数据
     if (block) {
         block(formData);
     }
-
+    
+    /*
+     做最终的处理，比如设置一下MultipartRequest的bodyStream或者其特有的content-type等等，后面也会详解
+     */
     return [formData requestByFinalizingMultipartFormData];
 }
 
@@ -914,7 +922,9 @@ NSTimeInterval const kAFUploadStream3GSuggestedDelay = 0.2;
     }
 
     // Reset the initial and final boundaries to ensure correct Content-Length
+    // 设置初始化和最终的界限来保证正确数据长度Content-Length
     [self.bodyStream setInitialAndFinalBoundaries];
+    // 设置数据流
     [self.request setHTTPBodyStream:self.bodyStream];
     
     // 设置Content-Type
