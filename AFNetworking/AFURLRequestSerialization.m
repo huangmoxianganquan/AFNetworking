@@ -693,6 +693,10 @@ static NSString * AFCreateMultipartFormBoundary() {
 
 static NSString * const kAFMultipartFormCRLF = @"\r\n";
 
+/*
+ 初始化分界线
+ inline：内联函数，提升效率用的。inline是C++关键字，在函数声明或定义中，函数返回类型前加上关键字inline，即可以把函数指定为内联函数。这样可以解决一些频繁调用的函数大量消耗栈空间（栈内存）的问题。关键字inline必须与函数定义放在一起才能使函数成为内联函数，仅仅将inline放在函数声明前面不起任何作用。
+ */
 static inline NSString * AFMultipartFormInitialBoundary(NSString *boundary) {
     return [NSString stringWithFormat:@"--%@%@", boundary, kAFMultipartFormCRLF];
 }
@@ -1129,11 +1133,11 @@ NSTimeInterval const kAFUploadStream3GSuggestedDelay = 0.2;
 #pragma mark -
 
 typedef enum {
-    AFEncapsulationBoundaryPhase = 1, // 封装（起始）边界线段
-    AFHeaderPhase                = 2, // 头段
-    AFBodyPhase                  = 3, // 内容段
-    AFFinalBoundaryPhase         = 4, // 终止边界线段
-} AFHTTPBodyPartReadPhase;
+    AFEncapsulationBoundaryPhase = 1, // 读取开始分界线阶段
+    AFHeaderPhase                = 2, // 读取头信息阶段
+    AFBodyPhase                  = 3, // 读取包体数据阶段
+    AFFinalBoundaryPhase         = 4, // 读取结束分界线阶段
+} AFHTTPBodyPartReadPhase; // 数据流单包数据读取阶段（从读取开始分界线开始，读到结束分界线）
 
 @interface AFHTTPBodyPart () <NSCopying> {
     AFHTTPBodyPartReadPhase _phase;
@@ -1231,12 +1235,15 @@ typedef enum {
     }
 }
 
+/// 读取bodyPart（数据流单包）的数据
+/// @param buffer 数据缓存地址
+/// @param length 最大读取数据大小
 - (NSInteger)read:(uint8_t *)buffer
         maxLength:(NSUInteger)length
 {
     NSInteger totalNumberOfBytesRead = 0;
 
-    if (_phase == AFEncapsulationBoundaryPhase) {
+    if (_phase == AFEncapsulationBoundaryPhase) { // 读取初始化分界线数据
         NSData *encapsulationBoundaryData = [([self hasInitialBoundary] ? AFMultipartFormInitialBoundary(self.boundary) : AFMultipartFormEncapsulationBoundary(self.boundary)) dataUsingEncoding:self.stringEncoding];
         totalNumberOfBytesRead += [self readData:encapsulationBoundaryData intoBuffer:&buffer[totalNumberOfBytesRead] maxLength:(length - (NSUInteger)totalNumberOfBytesRead)];
     }
@@ -1269,15 +1276,23 @@ typedef enum {
     return totalNumberOfBytesRead;
 }
 
+/// 从data读取数据到数据缓冲器中
+/// @param data 数据
+/// @param buffer 数据缓冲器地址
+/// @param length 最大读取数据大小
 - (NSInteger)readData:(NSData *)data
            intoBuffer:(uint8_t *)buffer
             maxLength:(NSUInteger)length
 {
+    // 数据读取范围
     NSRange range = NSMakeRange((NSUInteger)_phaseReadOffset, MIN([data length] - ((NSUInteger)_phaseReadOffset), length));
+    // 从data读取数据到buffer中
     [data getBytes:buffer range:range];
 
+    // 当前阶段数据读取偏移 当前阶段的数据有可能一次读不完，需要设置偏移，来确定下次读取数据的范围
     _phaseReadOffset += range.length;
 
+    // 读完当前阶段数据后，转移到下一阶段，读取下一阶段数据
     if (((NSUInteger)_phaseReadOffset) >= [data length]) {
         [self transitionToNextPhase];
     }
@@ -1298,8 +1313,14 @@ typedef enum {
             _phase = AFHeaderPhase;
             break;
         case AFHeaderPhase:
-            // 打开流，准备接受数据
+            /*
+             确保数据流在一个给定的runLoop，及给定的模式下运行
+             官方解释：在给定模式下，在给定的运行循环上调度接收器。
+                     除非客户机正在轮询流，否则它负责确保流被调度在至少一个运行循环上，
+                     并且流被调度在其中的至少一个运行循环上正在运行。
+             */
             [self.inputStream scheduleInRunLoop:[NSRunLoop currentRunLoop] forMode:NSRunLoopCommonModes];
+            // 打开流，准备接受数据
             [self.inputStream open];
             _phase = AFBodyPhase;
             break;
