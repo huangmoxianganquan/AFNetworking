@@ -1127,7 +1127,10 @@ didReceiveChallenge:(NSURLAuthenticationChallenge *)challenge
 }
 
 #pragma mark - NSURLSessionTaskDelegate
-
+/*
+ 客户端告知服务端需要HTPP重定向
+ 此方法只会在default session或者ephemeral session中调用，而在background session中，session task会自动重定向
+ */
 - (void)URLSession:(NSURLSession *)session
               task:(NSURLSessionTask *)task
 willPerformHTTPRedirection:(NSHTTPURLResponse *)response
@@ -1135,7 +1138,7 @@ willPerformHTTPRedirection:(NSHTTPURLResponse *)response
  completionHandler:(void (^)(NSURLRequest *))completionHandler
 {
     NSURLRequest *redirectRequest = request;
-
+    // 自定义如何处理重定向请求，注意会生成一个新的request
     if (self.taskWillPerformHTTPRedirection) {
         redirectRequest = self.taskWillPerformHTTPRedirection(session, task, response, request);
     }
@@ -1145,26 +1148,46 @@ willPerformHTTPRedirection:(NSHTTPURLResponse *)response
     }
 }
 
+/*
+ 该方法是处理task-level的认证挑战。
+ 
+ 在NSURLSessionDelegate中提供了一个session-level的认证挑战代理方法。该方法的调用取决于认证挑战的类型：
+ 对于session-level的认证挑战，挑战类型有 — NSURLAuthenticationMethodNTLM, NSURLAuthenticationMethodNegotiate, NSURLAuthenticationMethodClientCertificate, 或NSURLAuthenticationMethodServerTrust — 此时session会调用其代理方法URLSession:didReceiveChallenge:completionHandler:。如果你的app没有提供对应的NSURLSessionDelegate方法，那么NSURLSession对象就会调用URLSession:task:didReceiveChallenge:completionHandler:来处理认证挑战。
+ 对于non-session-level的认证挑战，NSURLSession对象调用URLSession:task:didReceiveChallenge:completionHandler:来处理认证挑战。
+     1、如果你在app中使用了session代理方法，而且也确实要处理认证挑战这个问题，那么你必须还是在tasklevel来处
+       这个问题，或者提供一个task-level的handler来显式调用每个session的handler。
+     2、对于non-session-level的认证挑战，session的delegate中的URLSession:didReceiveChallenge:completionHandler:方法不会被调用。
+ */
 - (void)URLSession:(NSURLSession *)session
               task:(NSURLSessionTask *)task
 didReceiveChallenge:(NSURLAuthenticationChallenge *)challenge
  completionHandler:(void (^)(NSURLSessionAuthChallengeDisposition disposition, NSURLCredential *credential))completionHandler
 {
     BOOL evaluateServerTrust = NO;
+    // session或task级别的认证挑战处置
+    /*
+     typedef NS_ENUM(NSInteger, NSURLSessionAuthChallengeDisposition) {
+         NSURLSessionAuthChallengeUseCredential = 0, // 使用指定的证书Use the specified credential, which may be nil
+         NSURLSessionAuthChallengePerformDefaultHandling = 1, // 质询的默认处理方式——就好像这个委托没有被执行一样；凭证参数被忽略。 Default handling for the challenge - as if this delegate were not implemented; the credential parameter is ignored.
+         NSURLSessionAuthChallengeCancelAuthenticationChallenge = 2, // 取消挑战；凭证参数被忽略。The entire request will be canceled; the credential parameter is ignored.
+         NSURLSessionAuthChallengeRejectProtectionSpace = 3,// 拒绝此挑战，应尝试下一个身份验证保护空间；凭证参数被忽略。This challenge is rejected and the next authentication protection space should be tried; the credential parameter is ignored.
+     }
+     */
     NSURLSessionAuthChallengeDisposition disposition = NSURLSessionAuthChallengePerformDefaultHandling;
     NSURLCredential *credential = nil;
 
+    // 自定义方法，用来如何应对服务器端的认证挑战
     if (self.authenticationChallengeHandler) {
         id result = self.authenticationChallengeHandler(session, task, challenge, completionHandler);
         if (result == nil) {
             return;
-        } else if ([result isKindOfClass:NSError.class]) {
+        } else if ([result isKindOfClass:NSError.class]) { // 如果报错，挑战取消
             objc_setAssociatedObject(task, AuthenticationChallengeErrorKey, result, OBJC_ASSOCIATION_RETAIN);
             disposition = NSURLSessionAuthChallengeCancelAuthenticationChallenge;
-        } else if ([result isKindOfClass:NSURLCredential.class]) {
+        } else if ([result isKindOfClass:NSURLCredential.class]) { // 结果是证书，评估通过，取出证书
             credential = result;
             disposition = NSURLSessionAuthChallengeUseCredential;
-        } else if ([result isKindOfClass:NSNumber.class]) {
+        } else if ([result isKindOfClass:NSNumber.class]) { // 返回的是处置安排，如果返回的是默认方式处理，则后面代码采用默认方式进行评估
             disposition = [result integerValue];
             NSAssert(disposition == NSURLSessionAuthChallengePerformDefaultHandling || disposition == NSURLSessionAuthChallengeCancelAuthenticationChallenge || disposition == NSURLSessionAuthChallengeRejectProtectionSpace, @"");
             evaluateServerTrust = disposition == NSURLSessionAuthChallengePerformDefaultHandling && [challenge.protectionSpace.authenticationMethod isEqualToString:NSURLAuthenticationMethodServerTrust];
@@ -1172,14 +1195,19 @@ didReceiveChallenge:(NSURLAuthenticationChallenge *)challenge
             @throw [NSException exceptionWithName:@"Invalid Return Value" reason:@"The return value from the authentication challenge handler must be nil, an NSError, an NSURLCredential or an NSNumber." userInfo:nil];
         }
     } else {
+        // protectionSpace 获取需要身份验证的保护空间的描述
+        // 只需要验证服务端证书是否安全
         evaluateServerTrust = [challenge.protectionSpace.authenticationMethod isEqualToString:NSURLAuthenticationMethodServerTrust];
     }
 
+    // 1、判断是否需要评估服务端证书是否可信任
     if (evaluateServerTrust) {
+        // 2、评估服务端证书是否可信任
         if ([self.securityPolicy evaluateServerTrust:challenge.protectionSpace.serverTrust forDomain:challenge.protectionSpace.host]) {
+            // 3、信任评估通过，就从受保护空间里面拿出证书，回调给服务器，告诉服务器，我信任你，你给我发送数据吧
             disposition = NSURLSessionAuthChallengeUseCredential;
             credential = [NSURLCredential credentialForTrust:challenge.protectionSpace.serverTrust];
-        } else {
+        } else { // 信任评估不过，取消挑战
             objc_setAssociatedObject(task, AuthenticationChallengeErrorKey,
                                      [self serverTrustErrorForServerTrust:challenge.protectionSpace.serverTrust url:task.currentRequest.URL],
                                      OBJC_ASSOCIATION_RETAIN);
@@ -1187,6 +1215,7 @@ didReceiveChallenge:(NSURLAuthenticationChallenge *)challenge
         }
     }
 
+    // 4、完成挑战，将信任凭证发送给服务端
     if (completionHandler) {
         completionHandler(disposition, credential);
     }

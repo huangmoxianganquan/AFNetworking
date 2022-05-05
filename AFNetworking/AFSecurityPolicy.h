@@ -23,8 +23,11 @@
 #import <Security/Security.h>
 
 typedef NS_ENUM(NSUInteger, AFSSLPinningMode) {
+    // 不使用固定证书（本地）验证服务器。直接从客户端系统中的受信任颁发机构 CA 列表中去验证
     AFSSLPinningModeNone,
+    // 代表会对服务器返回的证书中的PublicKey进行验证，通过则通过，否则不通过
     AFSSLPinningModePublicKey,
+    // 代表会对服务器返回的证书同本地证书全部进行校验，通过则通过，否则不通过
     AFSSLPinningModeCertificate,
 };
 
